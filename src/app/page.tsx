@@ -2,19 +2,19 @@
 
 import { useState, useEffect, useTransition } from 'react';
 import {
-  resetDatabaseAction,
-  importCSVAction,
-  getStagedExpensesAction,
-  getLedgerAction,
-  getMembershipsAction,
-  resolveStagedExpenseAction,
-  deleteExpenseAction,
-  readOriginalCSVFileAction,
-  updateMembershipDatesAction,
-  executeSettlementAction,
-  clearStagingAction
-} from './actions';
+  getClientState,
+  resetDatabase,
+  readOriginalCSVFile,
+  importCSVData,
+  deleteExpense,
+  clearStaging,
+  executeSettlement,
+  resolveStagedExpense,
+  updateMembershipDates,
+} from '@/lib/clientStore';
 import { calculateBalancesAndSettlements } from '@/lib/settlements';
+
+
 
 // Helper to get initials and avatar styling (Groww-style colored theme)
 function getAvatarStyles(name: string) {
@@ -99,16 +99,13 @@ export default function DashboardPage() {
   const [isPending, startTransition] = useTransition();
   const [loadingMsg, setLoadingMsg] = useState('');
 
-  // Fetch all data from server
-  const loadData = async () => {
+  // Fetch all data from localStorage
+  const loadData = () => {
     try {
-      const stagedData = await getStagedExpensesAction();
-      const ledgerData = await getLedgerAction();
-      const memData = await getMembershipsAction();
-      
-      setStagedExpenses(stagedData);
-      setExpenses(ledgerData);
-      setMemberships(memData);
+      const state = getClientState();
+      setStagedExpenses(state.stagedExpenses);
+      setExpenses(state.expenses);
+      setMemberships(state.memberships);
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     }
@@ -121,8 +118,8 @@ export default function DashboardPage() {
   const handleReset = () => {
     setLoadingMsg('Resetting database...');
     startTransition(async () => {
-      await resetDatabaseAction();
-      await loadData();
+      resetDatabase();
+      loadData();
       setImportReport(null);
       setSelectedUserAudit(null);
     });
@@ -131,26 +128,28 @@ export default function DashboardPage() {
   const handleLoadOriginalCSV = () => {
     setLoadingMsg('Reading expenses_export.csv...');
     startTransition(async () => {
-      const res = await readOriginalCSVFileAction();
-      if (res.success && res.content) {
-        setCsvInput(res.content);
+      const content = readOriginalCSVFile();
+      if (content) {
+        setCsvInput(content);
         setLoadingMsg('Importing and scanning CSV...');
-        const importRes = await importCSVAction(res.content);
-        if (importRes.success) {
-          const approved = importRes.data?.filter((r: any) => r.status === 'APPROVED').length || 0;
-          const pending = importRes.data?.filter((r: any) => r.status === 'PENDING').length || 0;
-          setImportReport({
-            success: true,
-            count: importRes.count,
-            approvedCount: approved,
-            pendingCount: pending
-          });
-          await loadData();
-        } else {
-          setImportReport({ success: false, error: importRes.error });
-        }
+        const state = importCSVData(content);
+        
+        // Count statuses of the newly imported CSV lines
+        // For simplicity, count status from state.stagedExpenses which has the imported rows at the beginning
+        const count = content.split(/\r?\n/).filter(line => line.trim().length > 0).length - 1; // subtract header
+        const newlyImported = state.stagedExpenses.slice(0, count > 0 ? count : 0);
+        const approved = newlyImported.filter(r => r.status === 'APPROVED').length;
+        const pending = newlyImported.filter(r => r.status === 'PENDING').length;
+        
+        setImportReport({
+          success: true,
+          count: count,
+          approvedCount: approved,
+          pendingCount: pending
+        });
+        loadData();
       } else {
-        setImportReport({ success: false, error: res.error });
+        setImportReport({ success: false, error: 'Could not read CSV content' });
       }
     });
   };
@@ -159,30 +158,27 @@ export default function DashboardPage() {
     if (!csvInput.trim()) return;
     setLoadingMsg('Importing and scanning CSV...');
     startTransition(async () => {
-      const importRes = await importCSVAction(csvInput);
-      if (importRes.success) {
-        const approved = importRes.data?.filter((r: any) => r.status === 'APPROVED').length || 0;
-        const pending = importRes.data?.filter((r: any) => r.status === 'PENDING').length || 0;
-        setImportReport({
-          success: true,
-          count: importRes.count,
-          approvedCount: approved,
-          pendingCount: pending
-        });
-        await loadData();
-      } else {
-        setImportReport({ success: false, error: importRes.error });
-      }
+      const state = importCSVData(csvInput);
+      const count = csvInput.split(/\r?\n/).filter(line => line.trim().length > 0).length - 1;
+      const newlyImported = state.stagedExpenses.slice(0, count > 0 ? count : 0);
+      const approved = newlyImported.filter(r => r.status === 'APPROVED').length;
+      const pending = newlyImported.filter(r => r.status === 'PENDING').length;
+      
+      setImportReport({
+        success: true,
+        count: count,
+        approvedCount: approved,
+        pendingCount: pending
+      });
+      loadData();
     });
   };
 
   const handleDeleteExpense = (id: string) => {
     setLoadingMsg('Deleting expense...');
     startTransition(async () => {
-      const res = await deleteExpenseAction(id);
-      if (res.success) {
-        await loadData();
-      }
+      deleteExpense(id);
+      loadData();
     });
   };
 
@@ -190,21 +186,19 @@ export default function DashboardPage() {
     if (!confirm('Are you sure you want to clear all pending staged expenses?')) return;
     setLoadingMsg('Purging staging queue...');
     startTransition(async () => {
-      const res = await clearStagingAction();
-      if (res.success) {
-        await loadData();
-      }
+      clearStaging();
+      loadData();
     });
   };
 
   const handleExecuteSettlement = (from: string, to: string, amount: number, currency: string) => {
     setLoadingMsg(`Recording settlement: ${from} paid ${to}...`);
     startTransition(async () => {
-      const res = await executeSettlementAction(from, to, amount, currency);
-      if (res.success) {
-        await loadData();
-      } else {
-        alert('Failed to execute settlement: ' + res.error);
+      try {
+        executeSettlement(from, to, amount, currency);
+        loadData();
+      } catch (err: any) {
+        alert('Failed to execute settlement: ' + err.message);
       }
     });
   };
@@ -237,16 +231,16 @@ export default function DashboardPage() {
     if (!editingStaged || !editForm) return;
     setLoadingMsg('Saving and approving expense...');
     startTransition(async () => {
-      const res = await resolveStagedExpenseAction(editingStaged.id, 'APPROVE', {
-        ...editForm,
-        split_type: editForm.split_type.toUpperCase()
-      });
-      if (res.success) {
+      try {
+        resolveStagedExpense(editingStaged.id, 'APPROVE', {
+          ...editForm,
+          split_type: editForm.split_type.toUpperCase()
+        });
         setEditingStaged(null);
         setEditForm(null);
-        await loadData();
-      } else {
-        alert('Failed to approve: ' + res.error);
+        loadData();
+      } catch (err: any) {
+        alert('Failed to approve: ' + err.message);
       }
     });
   };
@@ -254,10 +248,8 @@ export default function DashboardPage() {
   const handleRejectStaged = (id: string) => {
     setLoadingMsg('Rejecting staging record...');
     startTransition(async () => {
-      const res = await resolveStagedExpenseAction(id, 'REJECT');
-      if (res.success) {
-        await loadData();
-      }
+      resolveStagedExpense(id, 'REJECT');
+      loadData();
     });
   };
 
@@ -274,16 +266,16 @@ export default function DashboardPage() {
     if (!editingMembership) return;
     setLoadingMsg('Updating group timeline...');
     startTransition(async () => {
-      const res = await updateMembershipDatesAction(
-        editingMembership.id,
-        membershipForm.joinedAt,
-        membershipForm.leftAt || null
-      );
-      if (res.success) {
+      try {
+        updateMembershipDates(
+          editingMembership.id,
+          membershipForm.joinedAt,
+          membershipForm.leftAt || null
+        );
         setEditingMembership(null);
-        await loadData();
-      } else {
-        alert('Failed to update: ' + res.error);
+        loadData();
+      } catch (err: any) {
+        alert('Failed to update: ' + err.message);
       }
     });
   };
