@@ -16,12 +16,35 @@ import {
 } from './actions';
 import { calculateBalancesAndSettlements } from '@/lib/settlements';
 
-// Helper to get initials and avatar styling (Monochrome light theme)
+// Helper to get initials and avatar styling (Groww-style colored theme)
 function getAvatarStyles(name: string) {
   const clean = name.trim().toUpperCase();
   const initials = clean.slice(0, 2);
-  const bgGradient = 'from-white to-white';
-  const borderGlow = 'border-black shadow-none';
+  let bgGradient = 'from-zinc-700 to-zinc-900 text-zinc-100';
+  let borderGlow = 'border-zinc-700 shadow-[0_0_8px_rgba(113,113,122,0.15)]';
+
+  if (clean.includes('AISHA')) {
+    bgGradient = 'from-fuchsia-500/80 to-purple-600/95 text-white';
+    borderGlow = 'border-purple-400/40 shadow-[0_0_12px_rgba(168,85,247,0.25)]';
+  } else if (clean.includes('ROHAN')) {
+    bgGradient = 'from-blue-500/80 to-indigo-600/95 text-white';
+    borderGlow = 'border-blue-400/40 shadow-[0_0_12px_rgba(59,130,246,0.25)]';
+  } else if (clean.includes('PRIYA')) {
+    bgGradient = 'from-emerald-400/80 to-teal-600/95 text-white';
+    borderGlow = 'border-emerald-400/40 shadow-[0_0_12px_rgba(16,185,129,0.25)]';
+  } else if (clean.includes('MEERA')) {
+    bgGradient = 'from-amber-400/80 to-orange-500/95 text-white';
+    borderGlow = 'border-orange-400/40 shadow-[0_0_12px_rgba(245,158,11,0.25)]';
+  } else if (clean.includes('SAM')) {
+    bgGradient = 'from-rose-500/80 to-red-650/95 text-white';
+    borderGlow = 'border-red-400/40 shadow-[0_0_12px_rgba(239,68,68,0.25)]';
+  } else if (clean.includes('DEV')) {
+    bgGradient = 'from-violet-500/80 to-fuchsia-600/95 text-white';
+    borderGlow = 'border-violet-400/40 shadow-[0_0_12px_rgba(139,92,246,0.25)]';
+  } else if (clean.includes('KABIR')) {
+    bgGradient = 'from-cyan-400/80 to-sky-600/95 text-white';
+    borderGlow = 'border-cyan-400/40 shadow-[0_0_12px_rgba(6,182,212,0.25)]';
+  }
   return { initials, bgGradient, borderGlow };
 }
 
@@ -32,6 +55,10 @@ export default function DashboardPage() {
   const [memberships, setMemberships] = useState<any[]>([]);
   const [selectedUserAudit, setSelectedUserAudit] = useState<string | null>(null);
   
+  // Chart states
+  const [chartType, setChartType] = useState<'area' | 'line' | 'candlestick'>('area');
+  const [hoveredPoint, setHoveredPoint] = useState<any | null>(null);
+
   // Ledger search filter
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -307,7 +334,8 @@ export default function DashboardPage() {
 
     if (sorted.length === 0) {
       return (
-        <div className="h-64 border border-zinc-200 flex items-center justify-center text-zinc-400 font-mono text-xs select-none">
+        <div className="h-64 border border-border-color bg-card-bg flex flex-col items-center justify-center text-zinc-500 font-mono text-xs select-none rounded shadow-inner">
+          <svg className="w-8 h-8 text-zinc-600 mb-2 animate-pulse" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z"/></svg>
           NO TRANSACTION DATA AVAILABLE FOR GRAPHING
         </div>
       );
@@ -315,14 +343,19 @@ export default function DashboardPage() {
 
     // Calculate running total
     let total = 0;
-    const points = sorted.map(e => {
+    const points = sorted.map((e, idx) => {
+      const prevTotal = total;
       total += Number(e.amount) * Number(e.exchangeRate);
       return {
+        id: e.id,
+        index: idx,
         time: new Date(e.dateIncurred).getTime(),
-        displayDate: new Date(e.dateIncurred).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        displayDate: new Date(e.dateIncurred).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
         value: total,
+        prevValue: prevTotal,
         desc: e.description,
-        amount: Number(e.amount) * Number(e.exchangeRate)
+        amount: Number(e.amount) * Number(e.exchangeRate),
+        payer: e.paidBy.name
       };
     });
 
@@ -348,10 +381,11 @@ export default function DashboardPage() {
     const svgPoints = points.map(p => {
       const x = paddingLeft + ((p.time - minTime) / timespan) * chartWidth;
       const y = paddingTop + chartHeight - (p.value / maxVal) * chartHeight;
-      return { x, y, ...p };
+      const prevY = paddingTop + chartHeight - (p.prevValue / maxVal) * chartHeight;
+      return { x, y, prevY, ...p };
     });
 
-    // Build the path string
+    // Build the path string for Area/Line chart
     let pathD = `M ${svgPoints[0].x} ${svgPoints[0].y}`;
     for (let i = 1; i < svgPoints.length; i++) {
       pathD += ` L ${svgPoints[i].x} ${svgPoints[i].y}`;
@@ -361,7 +395,7 @@ export default function DashboardPage() {
     const fillD = `${pathD} L ${svgPoints[svgPoints.length - 1].x} ${paddingTop + chartHeight} L ${svgPoints[0].x} ${paddingTop + chartHeight} Z`;
 
     // Generate grid lines
-    const gridDivisions = 5;
+    const gridDivisions = 6;
     const xGrids = Array.from({ length: gridDivisions }).map((_, idx) => {
       return paddingLeft + (idx / (gridDivisions - 1)) * chartWidth;
     });
@@ -371,28 +405,47 @@ export default function DashboardPage() {
     });
 
     return (
-      <div className="bg-white border border-zinc-200 p-5 rounded-none font-mono">
-        <div className="flex justify-between items-center mb-4 select-none">
+      <div className="bg-card-bg border border-border-color p-5 rounded font-mono shadow-md relative">
+        <div className="flex justify-between items-start mb-4 select-none">
           <div>
-            <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">CUMULATIVE EXPENSE LEDGER VALUE</span>
-            <div className="text-xl font-black text-black mt-1">
+            <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">CUMULATIVE EXPENSE LEDGER VALUE</span>
+            <div className="text-2xl font-black text-white mt-1 flex items-baseline gap-2 font-mono">
               {formatAmount(total)}
+              <span className="text-[10px] text-primary font-bold bg-primary/10 border border-primary/20 rounded px-1.5 py-0.25">
+                ACTIVE
+              </span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 bg-white border border-black px-2.5 py-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-black animate-pulse"></span>
-            <span className="text-[8.5px] text-black font-bold uppercase tracking-wider">LIVE FEED</span>
+          
+          {/* Tooltip Overlay */}
+          <div className="h-10 flex flex-col justify-end text-right">
+            {hoveredPoint ? (
+              <div className="text-[10px] text-zinc-300">
+                <span className="text-primary font-bold uppercase mr-1.5">{hoveredPoint.payer}</span>
+                <span className="text-zinc-550 font-bold mr-1.5">{hoveredPoint.desc}</span>
+                <span className="text-white font-black">{formatAmount(hoveredPoint.amount)}</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 bg-zinc-900/40 border border-border-color px-2.5 py-1 rounded">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+                <span className="text-[8.5px] text-zinc-400 font-bold uppercase tracking-wider">LIVE TICKER ACTIVE</span>
+              </div>
+            )}
           </div>
         </div>
 
         {/* SVG Canvas */}
         <div className="relative">
-          <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto select-none">
+          <svg
+            viewBox={`0 0 ${width} ${height}`}
+            className="w-full h-auto select-none overflow-visible"
+            onMouseLeave={() => setHoveredPoint(null)}
+          >
             {/* Gradients */}
             <defs>
               <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="black" stopOpacity="0.06" />
-                <stop offset="100%" stopColor="black" stopOpacity="0.0" />
+                <stop offset="0%" stopColor="#00d09c" stopOpacity="0.15" />
+                <stop offset="100%" stopColor="#00d09c" stopOpacity="0.0" />
               </linearGradient>
             </defs>
 
@@ -404,7 +457,8 @@ export default function DashboardPage() {
                 y1={paddingTop}
                 x2={x}
                 y2={paddingTop + chartHeight}
-                stroke="rgba(0,0,0,0.04)"
+                stroke="#1f222e"
+                strokeWidth="1"
                 strokeDasharray="2 2"
               />
             ))}
@@ -415,7 +469,8 @@ export default function DashboardPage() {
                 y1={y}
                 x2={paddingLeft + chartWidth}
                 y2={y}
-                stroke="rgba(0,0,0,0.04)"
+                stroke="#1f222e"
+                strokeWidth="1"
                 strokeDasharray="2 2"
               />
             ))}
@@ -426,10 +481,10 @@ export default function DashboardPage() {
               return (
                 <text
                   key={`y-label-${idx}`}
-                  x={paddingLeft - 8}
+                  x={paddingLeft - 10}
                   y={y + 3}
                   textAnchor="end"
-                  fill="#888"
+                  fill="#787b86"
                   fontSize="8.5"
                   fontWeight="bold"
                 >
@@ -445,7 +500,7 @@ export default function DashboardPage() {
                 x={p.x}
                 y={paddingTop + chartHeight + 16}
                 textAnchor="middle"
-                fill="#888"
+                fill="#787b86"
                 fontSize="8.5"
                 fontWeight="bold"
               >
@@ -453,40 +508,147 @@ export default function DashboardPage() {
               </text>
             ))}
 
-            {/* Area Fill */}
-            <path d={fillD} fill="url(#chartGradient)" />
+            {/* Render Area/Line view */}
+            {chartType === 'area' && (
+              <>
+                <path d={fillD} fill="url(#chartGradient)" />
+                <path d={pathD} fill="none" stroke="#00d09c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </>
+            )}
 
-            {/* Path Line */}
-            <path d={pathD} fill="none" stroke="black" strokeWidth="1.5" strokeLinecap="round" />
+            {chartType === 'line' && (
+              <path d={pathD} fill="none" stroke="#00d09c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            )}
 
-            {/* Data Points */}
+            {/* Render Candlestick view */}
+            {chartType === 'candlestick' && (
+              svgPoints.map((p, idx) => {
+                const isGreen = p.amount >= 0;
+                const bodyTop = Math.min(p.y, p.prevY);
+                const bodyBottom = Math.max(p.y, p.prevY);
+                const bodyHeight = Math.max(2, bodyBottom - bodyTop);
+                const wickTop = bodyTop - bodyHeight * 0.3;
+                const wickBottom = bodyBottom + bodyHeight * 0.15;
+                const wickX = p.x;
+
+                return (
+                  <g key={`candle-${idx}`} className="cursor-pointer">
+                    {/* Wick */}
+                    <line
+                      x1={wickX}
+                      y1={wickTop}
+                      x2={wickX}
+                      y2={wickBottom}
+                      stroke={isGreen ? '#26a69a' : '#ef5350'}
+                      strokeWidth="1.5"
+                    />
+                    {/* Body */}
+                    <rect
+                      x={wickX - 3}
+                      y={bodyTop}
+                      width="6"
+                      height={bodyHeight}
+                      fill={isGreen ? '#26a69a' : '#ef5350'}
+                      stroke={isGreen ? '#26a69a' : '#ef5350'}
+                      strokeWidth="1"
+                    />
+                  </g>
+                );
+              })
+            )}
+
+            {/* Interactive Crosshairs & Highlight */}
+            {hoveredPoint && (
+              <g>
+                {/* Vertical Crosshair */}
+                <line
+                  x1={hoveredPoint.x}
+                  y1={paddingTop}
+                  x2={hoveredPoint.x}
+                  y2={paddingTop + chartHeight}
+                  stroke="#787b86"
+                  strokeWidth="1"
+                  strokeDasharray="3 3"
+                  opacity="0.6"
+                />
+                {/* Horizontal Crosshair */}
+                <line
+                  x1={paddingLeft}
+                  y1={hoveredPoint.y}
+                  x2={paddingLeft + chartWidth}
+                  y2={hoveredPoint.y}
+                  stroke="#787b86"
+                  strokeWidth="1"
+                  strokeDasharray="3 3"
+                  opacity="0.6"
+                />
+                {/* Axis Value Indicators */}
+                <rect
+                  x={paddingLeft - 50}
+                  y={hoveredPoint.y - 8}
+                  width="45"
+                  height="16"
+                  fill="#1e222d"
+                  stroke="#787b86"
+                  strokeWidth="0.5"
+                  rx="2"
+                />
+                <text
+                  x={paddingLeft - 8}
+                  y={hoveredPoint.y + 3}
+                  textAnchor="end"
+                  fill="#ffffff"
+                  fontSize="8"
+                  fontWeight="bold"
+                >
+                  {useUSD ? `$${(hoveredPoint.value / EXCHANGE_RATE).toFixed(0)}` : `₹${hoveredPoint.value.toFixed(0)}`}
+                </text>
+              </g>
+            )}
+
+            {/* Hover Circles triggers */}
             {svgPoints.map((p, idx) => (
               <circle
-                key={`point-${idx}`}
+                key={`trigger-${idx}`}
                 cx={p.x}
                 cy={p.y}
-                r="2"
-                fill="white"
-                stroke="black"
-                strokeWidth="1.5"
-                className="cursor-pointer hover:r-3.5 transition-all"
-              >
-                <title>{`${p.displayDate} - ${p.desc}: ${formatAmount(p.amount)} (Total: ${formatAmount(p.value)})`}</title>
-              </circle>
+                r="7"
+                fill="transparent"
+                className="cursor-pointer"
+                onMouseEnter={() => setHoveredPoint(p)}
+              />
             ))}
+
+            {/* Visible Data Dots */}
+            {chartType !== 'candlestick' && svgPoints.map((p, idx) => {
+              const isHovered = hoveredPoint && hoveredPoint.id === p.id;
+              return (
+                <circle
+                  key={`dot-${idx}`}
+                  cx={p.x}
+                  cy={p.y}
+                  r={isHovered ? "4" : "2"}
+                  fill={isHovered ? "#ffffff" : "#00d09c"}
+                  stroke={isHovered ? "#00d09c" : "transparent"}
+                  strokeWidth={isHovered ? "2.5" : "0"}
+                  className="transition-all pointer-events-none"
+                  opacity={isHovered ? "1" : "0.75"}
+                />
+              );
+            })}
           </svg>
         </div>
 
         {/* Interval and controls */}
-        <div className="flex justify-between items-center border-t border-zinc-200 mt-4 pt-3 text-[9px] select-none">
-          <div className="flex gap-1">
+        <div className="flex justify-between items-center border-t border-border-color mt-4 pt-3 text-[9px] select-none">
+          <div className="flex gap-1.5">
             {['1D', '1M', '3M', '1Y', '5Y', 'ALL'].map(range => (
               <button
                 key={range}
-                className={`px-2 py-0.5 font-bold border transition-colors cursor-pointer ${
+                className={`px-2 py-0.5 font-bold border rounded transition-colors cursor-pointer text-[9.5px] ${
                   range === 'ALL'
-                    ? 'bg-white text-black border-black border-2'
-                    : 'bg-transparent text-zinc-400 border-transparent hover:border-zinc-200'
+                    ? 'bg-primary/15 text-primary border-primary/30 shadow-[0_0_8px_rgba(0,208,156,0.1)]'
+                    : 'bg-transparent text-zinc-500 border-transparent hover:text-zinc-300'
                 }`}
               >
                 {range}
@@ -494,11 +656,34 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          <div className="flex items-center gap-3 text-zinc-400 font-bold">
-            <button className="hover:text-black" title="Embed Chart">{'</>'}</button>
-            <button className="hover:text-black" title="Candle View">📊</button>
-            <button className="hover:text-black" title="Properties">⚙</button>
-            <button className="hover:text-black" title="Fullscreen View">⛶</button>
+          {/* Chart Type Toggles */}
+          <div className="flex items-center gap-1.5 bg-background px-2 py-1 border border-border-color rounded">
+            <button
+              onClick={() => setChartType('area')}
+              className={`px-2 py-0.5 text-[8.5px] font-bold uppercase rounded transition-all cursor-pointer ${
+                chartType === 'area' ? 'bg-zinc-800 text-primary shadow-sm' : 'text-zinc-550 hover:text-zinc-350'
+              }`}
+            >
+              Area
+            </button>
+            <span className="text-zinc-800 text-[8px]">|</span>
+            <button
+              onClick={() => setChartType('line')}
+              className={`px-2 py-0.5 text-[8.5px] font-bold uppercase rounded transition-all cursor-pointer ${
+                chartType === 'line' ? 'bg-zinc-800 text-primary shadow-sm' : 'text-zinc-550 hover:text-zinc-350'
+              }`}
+            >
+              Line
+            </button>
+            <span className="text-zinc-800 text-[8px]">|</span>
+            <button
+              onClick={() => setChartType('candlestick')}
+              className={`px-2 py-0.5 text-[8.5px] font-bold uppercase rounded transition-all cursor-pointer ${
+                chartType === 'candlestick' ? 'bg-zinc-800 text-primary shadow-sm' : 'text-zinc-550 hover:text-zinc-350'
+              }`}
+            >
+              Candles
+            </button>
           </div>
         </div>
       </div>
@@ -506,44 +691,45 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="flex-1 bg-white text-black h-screen flex flex-col font-sans selection:bg-black selection:text-white overflow-hidden">
+    <div className="flex-1 bg-background text-foreground h-screen flex flex-col font-sans selection:bg-primary selection:text-black overflow-hidden">
       {/* Top Header */}
-      <header className="h-14 border-b border-zinc-200 px-6 flex items-center justify-between bg-white shrink-0 select-none">
+      <header className="h-14 border-b border-border-color px-6 flex items-center justify-between bg-card-bg shrink-0 select-none shadow-md">
         <div className="flex items-center gap-3">
-          <span className="bg-white text-black border border-black text-[9px] font-black tracking-widest uppercase px-2 py-0.5">
+          <span className="bg-primary/10 text-primary border border-primary/30 text-[9px] font-black tracking-widest uppercase px-2 py-0.5 rounded shadow-[0_0_12px_rgba(0,208,156,0.15)]">
             SPREETAIL
           </span>
-          <h1 className="text-xs font-black tracking-widest uppercase text-black font-mono">
-            Shared Expenses Terminal v1.0
+          <h1 className="text-xs font-black tracking-widest uppercase text-white font-mono flex items-center gap-2">
+            Shared Expenses Terminal <span className="text-[10px] text-primary/80 font-bold px-1.5 py-0.25 bg-primary/10 border border-primary/20 rounded">v1.1</span>
           </h1>
-          <span className="text-zinc-300 text-[10px] hidden sm:inline">|</span>
-          <p className="text-zinc-400 text-[9px] font-mono uppercase hidden sm:inline">
-            Status: Active Ledger Running
-          </p>
+          <span className="text-border-color text-[10px] hidden sm:inline">|</span>
+          <div className="flex items-center gap-1.5 text-zinc-450 text-[9px] font-mono uppercase hidden sm:inline-flex">
+            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+            <span>Ledger: Active Stream</span>
+          </div>
         </div>
 
         {/* Action Row */}
         <div className="flex items-center gap-3">
           {/* Currency Toggle */}
-          <div className="border border-black px-2 py-1 bg-white flex items-center gap-2">
-            <span className={`text-[9px] font-bold font-mono ${!useUSD ? 'text-black' : 'text-zinc-400'}`}>INR</span>
+          <div className="border border-border-color px-2.5 py-1 bg-background/50 rounded flex items-center gap-2">
+            <span className={`text-[9px] font-bold font-mono ${!useUSD ? 'text-primary' : 'text-zinc-500'}`}>INR</span>
             <button
               onClick={() => setUseUSD(!useUSD)}
-              className="w-8 h-4 bg-white border border-black p-0.5 relative focus:outline-none cursor-pointer"
+              className="w-8 h-4 bg-zinc-800 border border-border-color rounded-full p-0.5 relative focus:outline-none cursor-pointer transition-colors hover:border-zinc-700"
             >
               <div
-                className={`w-3.5 h-2.5 bg-black transition-transform ${
-                  useUSD ? 'translate-x-3.5' : 'translate-x-0'
+                className={`w-3 h-3 rounded-full bg-primary transition-transform shadow-[0_0_8px_rgba(0,208,156,0.4)] ${
+                  useUSD ? 'translate-x-4' : 'translate-x-0'
                 }`}
               />
             </button>
-            <span className={`text-[9px] font-bold font-mono ${useUSD ? 'text-black' : 'text-zinc-400'}`}>USD</span>
+            <span className={`text-[9px] font-bold font-mono ${useUSD ? 'text-primary' : 'text-zinc-500'}`}>USD</span>
           </div>
 
           <button
             onClick={handleReset}
             disabled={isPending}
-            className="border border-black hover:bg-zinc-100 text-black text-[9px] font-black px-3 py-1.5 bg-white transition-colors disabled:opacity-50 cursor-pointer"
+            className="border border-danger/30 hover:border-danger hover:bg-danger/10 text-danger text-[9px] font-bold px-3 py-1.5 rounded bg-transparent transition-all disabled:opacity-50 cursor-pointer uppercase tracking-wider"
           >
             RESET
           </button>
@@ -551,7 +737,7 @@ export default function DashboardPage() {
           <button
             onClick={handleLoadOriginalCSV}
             disabled={isPending}
-            className="bg-white hover:bg-zinc-100 border border-black text-black text-[9px] font-black px-3 py-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+            className="bg-primary hover:bg-primary-hover border border-transparent text-black text-[9px] font-black px-3.5 py-1.5 rounded transition-all disabled:opacity-50 cursor-pointer uppercase tracking-wider shadow-[0_0_12px_rgba(0,208,156,0.2)]"
           >
             IMPORT CSV
           </button>
@@ -560,40 +746,40 @@ export default function DashboardPage() {
 
       {/* Global Loading overlay */}
       {isPending && (
-        <div className="fixed inset-0 bg-white/95 flex flex-col items-center justify-center z-50">
-          <div className="animate-spin h-8 w-8 border border-zinc-300 border-t-black mb-3"></div>
-          <p className="text-black font-black text-[10px] font-mono uppercase tracking-widest">{loadingMsg}</p>
+        <div className="fixed inset-0 bg-background/85 backdrop-blur-md flex flex-col items-center justify-center z-50">
+          <div className="animate-spin h-10 w-10 border-2 border-primary/20 border-t-primary rounded-full mb-3 shadow-[0_0_15px_rgba(0,208,156,0.25)]"></div>
+          <p className="text-primary font-black text-[10px] font-mono uppercase tracking-widest animate-pulse">{loadingMsg}</p>
         </div>
       )}
 
       {/* Main split dashboard pane */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden bg-background">
         {/* Left Side: Workspace */}
-        <main className="flex-1 flex flex-col overflow-y-auto px-6 py-5 bg-white">
+        <main className="flex-1 flex flex-col overflow-y-auto px-6 py-5 bg-background">
           {/* Navigation tabs styled as TradingView pills */}
-          <div className="mb-5 flex overflow-x-auto gap-2.5 shrink-0 scrollbar-none select-none">
+          <div className="mb-5 flex overflow-x-auto gap-2 shrink-0 scrollbar-none select-none">
             <button
               onClick={() => setActiveTab('overview')}
-              className={`px-3.5 py-1.5 font-bold text-[10px] tracking-wider uppercase rounded-full border transition-all cursor-pointer ${
+              className={`px-4 py-1.5 font-bold text-[10px] tracking-wider uppercase rounded border transition-all cursor-pointer ${
                 activeTab === 'overview'
-                  ? 'bg-white text-black border-black border-2 font-black'
-                  : 'bg-white text-zinc-500 border-zinc-200 hover:border-black hover:text-black'
+                  ? 'bg-primary/15 text-primary border-primary font-black shadow-[0_0_10px_rgba(0,208,156,0.15)]'
+                  : 'bg-[#1e222d]/40 text-zinc-400 border-border-color hover:border-zinc-700 hover:text-white'
               }`}
             >
               Overview
             </button>
             <button
               onClick={() => setActiveTab('staged')}
-              className={`px-3.5 py-1.5 font-bold text-[10px] tracking-wider uppercase rounded-full border transition-all cursor-pointer flex items-center gap-1.5 ${
+              className={`px-4 py-1.5 font-bold text-[10px] tracking-wider uppercase rounded border transition-all cursor-pointer flex items-center gap-2 ${
                 activeTab === 'staged'
-                  ? 'bg-white text-black border-black border-2 font-black'
-                  : 'bg-white text-zinc-500 border-zinc-200 hover:border-black hover:text-black'
+                  ? 'bg-primary/15 text-primary border-primary font-black shadow-[0_0_10px_rgba(0,208,156,0.15)]'
+                  : 'bg-[#1e222d]/40 text-zinc-400 border-border-color hover:border-zinc-700 hover:text-white'
               }`}
             >
               Staged Buffer
               {stagedExpenses.filter(s => s.status === 'PENDING').length > 0 && (
-                <span className={`text-[8.5px] px-1.5 py-0.25 font-bold rounded-full border ${
-                  activeTab === 'staged' ? 'bg-white text-black border-black' : 'bg-white text-zinc-550 border-zinc-300'
+                <span className={`text-[8.5px] px-1.5 py-0.25 font-bold rounded border ${
+                  activeTab === 'staged' ? 'bg-primary text-black border-transparent shadow-[0_0_6px_rgba(0,208,156,0.3)]' : 'bg-zinc-800 text-zinc-400 border-zinc-700'
                 }`}>
                   {stagedExpenses.filter(s => s.status === 'PENDING').length}
                 </span>
@@ -601,31 +787,31 @@ export default function DashboardPage() {
             </button>
             <button
               onClick={() => setActiveTab('ledger')}
-              className={`px-3.5 py-1.5 font-bold text-[10px] tracking-wider uppercase rounded-full border transition-all cursor-pointer flex items-center gap-1.5 ${
+              className={`px-4 py-1.5 font-bold text-[10px] tracking-wider uppercase rounded border transition-all cursor-pointer flex items-center gap-2 ${
                 activeTab === 'ledger'
-                  ? 'bg-white text-black border-black border-2 font-black'
-                  : 'bg-white text-zinc-500 border-zinc-200 hover:border-black hover:text-black'
+                  ? 'bg-primary/15 text-primary border-primary font-black shadow-[0_0_10px_rgba(0,208,156,0.15)]'
+                  : 'bg-[#1e222d]/40 text-zinc-400 border-border-color hover:border-zinc-700 hover:text-white'
               }`}
             >
               Ledger Audit
-              <span className={`text-[8.5px] px-1.5 py-0.25 font-bold rounded-full border ${
-                activeTab === 'ledger' ? 'bg-white text-black border-black' : 'bg-white text-zinc-555 border-zinc-300'
+              <span className={`text-[8.5px] px-1.5 py-0.25 font-bold rounded border ${
+                activeTab === 'ledger' ? 'bg-primary text-black border-transparent shadow-[0_0_6px_rgba(0,208,156,0.3)]' : 'bg-zinc-800 text-zinc-400 border-zinc-700'
               }`}>
                 {expenses.length}
               </span>
             </button>
             <button
               onClick={() => setActiveTab('settlements')}
-              className={`px-3.5 py-1.5 font-bold text-[10px] tracking-wider uppercase rounded-full border transition-all cursor-pointer flex items-center gap-1.5 ${
+              className={`px-4 py-1.5 font-bold text-[10px] tracking-wider uppercase rounded border transition-all cursor-pointer flex items-center gap-2 ${
                 activeTab === 'settlements'
-                  ? 'bg-white text-black border-black border-2 font-black'
-                  : 'bg-white text-zinc-500 border-zinc-200 hover:border-black hover:text-black'
+                  ? 'bg-primary/15 text-primary border-primary font-black shadow-[0_0_10px_rgba(0,208,156,0.15)]'
+                  : 'bg-[#1e222d]/40 text-zinc-400 border-border-color hover:border-zinc-700 hover:text-white'
               }`}
             >
               Cash Settlements
               {settlements.length > 0 && (
-                <span className={`text-[8.5px] px-1.5 py-0.25 font-bold rounded-full border ${
-                  activeTab === 'settlements' ? 'bg-white text-black border-black' : 'bg-white text-zinc-555 border-zinc-300'
+                <span className={`text-[8.5px] px-1.5 py-0.25 font-bold rounded border ${
+                  activeTab === 'settlements' ? 'bg-primary text-black border-transparent shadow-[0_0_6px_rgba(0,208,156,0.3)]' : 'bg-zinc-800 text-zinc-400 border-zinc-700'
                 }`}>
                   {settlements.length}
                 </span>
@@ -633,10 +819,10 @@ export default function DashboardPage() {
             </button>
             <button
               onClick={() => setActiveTab('memberships')}
-              className={`px-3.5 py-1.5 font-bold text-[10px] tracking-wider uppercase rounded-full border transition-all cursor-pointer ${
+              className={`px-4 py-1.5 font-bold text-[10px] tracking-wider uppercase rounded border transition-all cursor-pointer ${
                 activeTab === 'memberships'
-                  ? 'bg-white text-black border-black border-2 font-black'
-                  : 'bg-white text-zinc-500 border-zinc-200 hover:border-black hover:text-black'
+                  ? 'bg-primary/15 text-primary border-primary font-black shadow-[0_0_10px_rgba(0,208,156,0.15)]'
+                  : 'bg-[#1e222d]/40 text-zinc-400 border-border-color hover:border-zinc-700 hover:text-white'
               }`}
             >
               Timeline
@@ -645,18 +831,18 @@ export default function DashboardPage() {
 
           {/* Import report */}
           {importReport && (
-            <div className={`mb-5 p-4 border rounded-none bg-white ${
-              importReport.success ? 'border-black text-black' : 'border-zinc-300 text-zinc-500'
+            <div className={`mb-5 p-4 border rounded bg-card-bg shadow-sm ${
+              importReport.success ? 'border-primary/20 text-primary bg-primary/5' : 'border-danger/20 text-danger bg-danger/5'
             }`}>
               <h3 className="text-xs font-black uppercase tracking-wider flex items-center gap-2">
                 {importReport.success ? '✓ PARSE SUCCESSFUL' : '⚠ SCAN FAILURE'}
               </h3>
               {importReport.success ? (
-                <p className="text-[11px] mt-1 text-zinc-655 leading-normal font-mono">
-                  Parsed <strong className="text-black font-black">{importReport.count}</strong> rows. Committed: {importReport.approvedCount} | Staged: {importReport.pendingCount}
+                <p className="text-[11px] mt-1 text-zinc-350 leading-normal font-mono">
+                  Parsed <strong className="text-white font-black">{importReport.count}</strong> rows. Committed: {importReport.approvedCount} | Staged: {importReport.pendingCount}
                 </p>
               ) : (
-                <p className="text-[11px] mt-1 text-zinc-500">{importReport.error}</p>
+                <p className="text-[11px] mt-1 text-danger/80">{importReport.error}</p>
               )}
             </div>
           )}
@@ -684,21 +870,21 @@ export default function DashboardPage() {
                           setSelectedUserAudit(b.name);
                           setActiveTab('ledger');
                         }}
-                        className={`p-3 border cursor-pointer hover:border-zinc-400 transition-all bg-white border-zinc-200 flex flex-col gap-1.5`}
+                        className="p-3.5 border rounded cursor-pointer hover:border-primary/30 hover:shadow-[0_0_15px_rgba(0,208,156,0.08)] transition-all bg-card-bg border-border-color flex flex-col gap-1.5"
                       >
-                        <div className="flex items-center gap-1.5">
-                          <div className={`w-5 h-5 bg-gradient-to-br ${bgGradient} border ${borderGlow} flex items-center justify-center text-[9px] font-bold text-black uppercase`}>
+                        <div className="flex items-center gap-2">
+                          <div className={`w-5 h-5 bg-gradient-to-br ${bgGradient} border ${borderGlow} flex items-center justify-center text-[9px] font-bold uppercase rounded-sm`}>
                             {initials}
                           </div>
-                          <span className="text-[10px] font-black text-zinc-500 tracking-wider uppercase">{b.name}</span>
+                          <span className="text-[10px] font-black text-zinc-400 tracking-wider uppercase truncate">{b.name}</span>
                         </div>
 
                         <div className="mt-1">
-                          <div className="text-xs font-mono font-black text-black truncate">
+                          <div className="text-xs font-mono font-black text-white truncate">
                             {formatAmount(Math.abs(b.netBalance))}
                           </div>
                           <div className={`text-[8.5px] font-mono font-bold mt-0.5 ${
-                            isPositive ? 'text-black' : isNegative ? 'text-zinc-500' : 'text-zinc-400'
+                            isPositive ? 'text-primary' : isNegative ? 'text-danger' : 'text-zinc-500'
                           }`}>
                             {isPositive ? '↑' : isNegative ? '↓' : ''} {percentDisplay}
                           </div>
@@ -712,33 +898,33 @@ export default function DashboardPage() {
                 {renderExpenseChart()}
 
                 {/* Recent Transactions list */}
-                <div className="bg-white border border-zinc-200 p-4.5 rounded-none">
+                <div className="bg-card-bg border border-border-color p-5 rounded">
                   <div className="flex justify-between items-center mb-4 select-none">
-                    <h2 className="text-xs font-black uppercase tracking-wider text-black font-mono">Recent Transactions Feed</h2>
+                    <h2 className="text-xs font-black uppercase tracking-wider text-white font-mono">Recent Transactions Feed</h2>
                     <button
                       onClick={() => setActiveTab('ledger')}
-                      className="text-[9px] text-zinc-550 hover:text-black border border-zinc-200 hover:border-black px-2 py-1 font-bold cursor-pointer bg-white transition-all"
+                      className="text-[9px] text-zinc-350 hover:text-white border border-border-color hover:border-zinc-550 px-3 py-1.5 font-bold cursor-pointer bg-background rounded transition-all"
                     >
                       VIEW FULL LEDGER
                     </button>
                   </div>
 
                   {expenses.length === 0 ? (
-                    <div className="text-center py-6 border border-dashed border-zinc-200 rounded-none">
-                      <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-wider">No transaction history found.</p>
+                    <div className="text-center py-6 border border-dashed border-border-color rounded">
+                      <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider font-mono">No transaction history found.</p>
                     </div>
                   ) : (
-                    <div className="divide-y divide-zinc-100">
+                    <div className="divide-y divide-border-color">
                       {expenses.slice(0, 5).map(exp => {
                         const paidInBase = Number(exp.amount) * Number(exp.exchangeRate);
                         return (
-                          <div key={exp.id} className="py-2.5 flex items-center justify-between text-xs font-mono">
-                            <div>
-                              <span className="text-zinc-400 mr-3">{new Date(exp.dateIncurred).toISOString().slice(5, 10)}</span>
-                              <span className="font-bold text-black uppercase">{exp.description}</span>
-                              <span className="text-zinc-500 ml-2">by {exp.paidBy.name}</span>
+                          <div key={exp.id} className="py-3 flex items-center justify-between text-xs font-mono hover:bg-white/2 px-2 rounded transition-colors">
+                            <div className="flex items-center">
+                              <span className="text-zinc-500 mr-3">{new Date(exp.dateIncurred).toISOString().slice(5, 10)}</span>
+                              <span className="font-bold text-white uppercase">{exp.description}</span>
+                              <span className="text-zinc-400 ml-2">by {exp.paidBy.name}</span>
                             </div>
-                            <div className="text-right font-black text-black font-mono">
+                            <div className="text-right font-black text-white font-mono">
                               {formatAmount(paidInBase)}
                             </div>
                           </div>
@@ -754,26 +940,26 @@ export default function DashboardPage() {
             {activeTab === 'staged' && (
               <div className="space-y-5">
                 {/* CSV Ingestion */}
-                <div className="bg-white border border-zinc-200 p-4.5 rounded-none">
+                <div className="bg-card-bg border border-border-color p-5 rounded shadow-md">
                   <div className="flex justify-between items-center mb-2.5">
-                    <h2 className="text-xs font-black uppercase tracking-wider text-black">Paste raw CSV data</h2>
-                    <span className="text-[9px] text-zinc-450 font-mono">HEADER IDENTIFIER RUNNING</span>
+                    <h2 className="text-xs font-black uppercase tracking-wider text-white">Paste raw CSV data</h2>
+                    <span className="text-[9px] text-zinc-550 font-mono">HEADER IDENTIFIER RUNNING</span>
                   </div>
                   <textarea
                     value={csvInput}
                     onChange={e => setCsvInput(e.target.value)}
                     placeholder="date,description,paid_by,amount,currency,split_type,split_with,split_details,notes"
                     rows={4}
-                    className="w-full bg-white border border-zinc-250 rounded-none p-3 text-xs font-mono text-black focus:outline-none focus:border-black transition-all resize-none"
+                    className="w-full bg-background border border-border-color rounded p-3 text-xs font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-primary transition-all resize-none"
                   />
                   <div className="mt-3 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-                    <span className="text-[9px] text-zinc-500 font-mono">
+                    <span className="text-[9.5px] text-zinc-500 font-mono">
                       Format: date | description | paid_by | amount | currency | split_type | split_with
                     </span>
                     <button
                       onClick={handleManualImport}
                       disabled={isPending || !csvInput.trim()}
-                      className="bg-white hover:bg-zinc-100 border border-black text-black font-black text-xs px-4 py-2 rounded-none transition-all disabled:opacity-50 cursor-pointer"
+                      className="bg-primary hover:bg-primary-hover border border-transparent text-black font-black text-xs px-4.5 py-2.5 rounded transition-all disabled:opacity-50 cursor-pointer shadow-[0_0_12px_rgba(0,208,156,0.15)]"
                     >
                       SCAN & STREAM
                     </button>
@@ -781,11 +967,11 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Staging Quarantine list */}
-                <div className="bg-white border border-zinc-200 p-4.5 rounded-none">
+                <div className="bg-card-bg border border-border-color p-5 rounded shadow-md">
                   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-4">
                     <div>
-                      <h2 className="text-xs font-black uppercase tracking-wider">Quarantined Records Queue</h2>
-                      <p className="text-zinc-500 text-[10px] mt-0.5">
+                      <h2 className="text-xs font-black uppercase tracking-wider text-white">Quarantined Records Queue</h2>
+                      <p className="text-zinc-400 text-[10px] mt-0.5 font-mono">
                         Items requiring manual review due to formatting anomalies or membership date bounds.
                       </p>
                     </div>
@@ -793,57 +979,57 @@ export default function DashboardPage() {
                       {stagedExpenses.filter(s => s.status === 'PENDING').length > 0 && (
                         <button
                           onClick={handleClearStaging}
-                          className="bg-white hover:bg-zinc-100 border border-black text-black font-extrabold text-[10px] px-3 py-1.5 rounded-none transition-all focus:outline-none cursor-pointer"
+                          className="bg-transparent hover:bg-danger/10 border border-danger/30 hover:border-danger text-danger font-bold text-[10px] px-3.5 py-1.5 rounded transition-all focus:outline-none cursor-pointer"
                         >
                           Clear All
                         </button>
                       )}
-                      <div className="text-[10px] bg-white border border-black px-3 py-1.5 text-black font-bold">
+                      <div className="text-[10px] bg-zinc-900 border border-border-color px-3 py-1.5 text-zinc-400 font-bold rounded">
                         Pending: {stagedExpenses.filter(s => s.status === 'PENDING').length}
                       </div>
                     </div>
                   </div>
 
                   {stagedExpenses.length === 0 ? (
-                    <div className="text-center py-12 border border-dashed border-zinc-200 rounded-none">
-                      <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-wider">No staged items in quarantine buffer.</p>
+                    <div className="text-center py-12 border border-dashed border-border-color rounded">
+                      <p className="text-zinc-550 text-[10px] font-bold uppercase tracking-wider font-mono">No staged items in quarantine buffer.</p>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-[11px] border-collapse">
                         <thead>
-                          <tr className="border-b border-zinc-200 text-zinc-500 font-bold uppercase tracking-wider">
-                            <th className="pb-2 pr-2 font-mono">Date</th>
-                            <th className="pb-2 px-3">Description</th>
-                            <th className="pb-2 px-3">Payer</th>
-                            <th className="pb-2 px-3">Amount</th>
-                            <th className="pb-2 px-3">Anomaly Diagnostics</th>
-                            <th className="pb-2 px-3">Status</th>
-                            <th className="pb-2 pl-3 text-right">Actions</th>
+                          <tr className="border-b border-border-color text-zinc-400 font-bold uppercase tracking-wider">
+                            <th className="pb-2.5 pr-2 font-mono">Date</th>
+                            <th className="pb-2.5 px-3">Description</th>
+                            <th className="pb-2.5 px-3">Payer</th>
+                            <th className="pb-2.5 px-3">Amount</th>
+                            <th className="pb-2.5 px-3">Anomaly Diagnostics</th>
+                            <th className="pb-2.5 px-3">Status</th>
+                            <th className="pb-2.5 pl-3 text-right">Actions</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-zinc-100">
+                        <tbody className="divide-y divide-border-color/20">
                           {stagedExpenses.map(staged => {
                             const hasAnomalies = staged.anomalies.length > 0;
                             return (
-                              <tr key={staged.id} className="hover:bg-zinc-50 transition-colors">
-                                <td className="py-3 pr-2 font-mono text-zinc-400">{staged.dateRaw}</td>
+                              <tr key={staged.id} className="hover:bg-white/2 transition-colors border-b border-border-color/10">
+                                <td className="py-3 pr-2 font-mono text-zinc-550">{staged.dateRaw}</td>
                                 <td className="py-3 px-3">
-                                  <div className="font-bold text-black text-xs">{staged.description}</div>
+                                  <div className="font-bold text-white text-xs uppercase">{staged.description}</div>
                                   {staged.notesRaw && (
-                                    <div className="text-[9px] text-zinc-500 italic mt-0.5 max-w-xs truncate" title={staged.notesRaw}>
+                                    <div className="text-[9.5px] text-zinc-500 italic mt-0.5 max-w-xs truncate" title={staged.notesRaw}>
                                       {staged.notesRaw}
                                     </div>
                                   )}
                                 </td>
-                                <td className="py-3 px-3 text-zinc-700">
+                                <td className="py-3 px-3 text-zinc-300">
                                   {staged.paidByRaw ? (
-                                    <span className="font-bold">{staged.paidByRaw}</span>
+                                    <span className="font-bold uppercase">{staged.paidByRaw}</span>
                                   ) : (
-                                    <span className="text-zinc-500 font-bold italic bg-white border border-zinc-300 px-1 rounded-none">missing</span>
+                                    <span className="text-danger font-bold italic bg-danger/10 border border-danger/20 px-2 py-0.5 rounded text-[10px]">missing</span>
                                   )}
                                 </td>
-                                <td className="py-3 px-3 font-bold font-mono text-zinc-600">
+                                <td className="py-3 px-3 font-bold font-mono text-zinc-350">
                                   {staged.amountRaw} {staged.currencyRaw || 'INR'}
                                 </td>
                                 <td className="py-3 px-3 max-w-xs">
@@ -852,23 +1038,23 @@ export default function DashboardPage() {
                                       <span
                                         key={`${a}-${idx}`}
                                         title={JSON.stringify(staged.anomalyDetails)}
-                                        className="bg-white text-black border border-black text-[8px] font-black px-1.5 py-0.25 rounded-none uppercase tracking-wide font-mono"
+                                        className="bg-danger/10 text-danger border border-danger/30 text-[8.5px] font-bold px-2 py-0.5 rounded uppercase tracking-wide font-mono"
                                       >
                                         {a.replace(/_/g, ' ')}
                                       </span>
                                     ))}
                                     {!hasAnomalies && (
-                                      <span className="border border-zinc-200 text-zinc-400 text-[8px] px-1.5 py-0.25 rounded-none font-black uppercase font-mono">
+                                      <span className="bg-primary/10 text-primary border border-primary/20 text-[8.5px] px-2 py-0.5 rounded font-bold uppercase font-mono">
                                         CLEAN
                                       </span>
                                     )}
                                   </div>
                                 </td>
                                 <td className="py-3 px-3">
-                                  <span className={`text-[9px] font-black uppercase tracking-wider ${
+                                  <span className={`text-[9px] font-bold uppercase tracking-wider ${
                                     staged.status === 'PENDING'
-                                      ? 'text-black underline decoration-dotted'
-                                      : 'text-zinc-400'
+                                      ? 'text-primary underline decoration-dotted'
+                                      : 'text-zinc-500'
                                   }`}>
                                     {staged.status}
                                   </span>
@@ -878,19 +1064,19 @@ export default function DashboardPage() {
                                     <div className="flex items-center justify-end gap-1.5">
                                       <button
                                         onClick={() => startReview(staged)}
-                                        className="bg-white hover:bg-zinc-100 border border-black text-black font-black text-[9px] px-2.5 py-1 rounded-none transition-all focus:outline-none cursor-pointer"
+                                        className="bg-primary hover:bg-primary-hover text-black font-black text-[9.5px] px-3 py-1.5 rounded transition-all focus:outline-none cursor-pointer"
                                       >
                                         Review
                                       </button>
                                       <button
                                         onClick={() => handleRejectStaged(staged.id)}
-                                        className="bg-white hover:bg-zinc-100 text-black border border-black font-extrabold text-[9px] px-2 py-1 rounded-none transition-all focus:outline-none cursor-pointer"
+                                        className="bg-transparent hover:bg-danger/10 text-danger border border-danger/20 hover:border-danger font-extrabold text-[9.5px] px-2.5 py-1.5 rounded transition-all focus:outline-none cursor-pointer"
                                       >
                                         Reject
                                       </button>
                                     </div>
                                   ) : (
-                                    <span className="text-[9px] text-zinc-400 font-mono uppercase">PROCESSED</span>
+                                    <span className="text-[9px] text-zinc-500 font-mono uppercase">PROCESSED</span>
                                   )}
                                 </td>
                               </tr>
@@ -908,28 +1094,28 @@ export default function DashboardPage() {
             {activeTab === 'ledger' && (
               <div className="space-y-4">
                 {selectedUserAudit && (
-                  <div className="bg-white border border-black p-4 rounded-none flex items-center justify-between gap-4">
+                  <div className="bg-card-bg border border-primary/20 p-4 rounded flex items-center justify-between gap-4 shadow-[0_0_12px_rgba(0,208,156,0.05)]">
                     <div>
-                      <h3 className="text-xs font-black uppercase tracking-wider text-black flex items-center gap-2 font-mono">
-                        <span className="w-1.5 h-1.5 bg-black"></span>
+                      <h3 className="text-xs font-black uppercase tracking-wider text-white flex items-center gap-2 font-mono">
+                        <span className="w-1.5 h-1.5 bg-primary rounded-full shadow-[0_0_8px_#00d09c]"></span>
                         Audit trail active: {selectedUserAudit}
                       </h3>
-                      <p className="text-zinc-500 text-[10px] mt-0.5 font-mono">
+                      <p className="text-zinc-400 text-[10px] mt-0.5 font-mono">
                         Filtering records where {selectedUserAudit} is the payer or debtor.
                       </p>
                     </div>
                     <button
                       onClick={() => setSelectedUserAudit(null)}
-                      className="bg-white hover:bg-zinc-100 border border-black text-black text-[10px] font-bold px-3 py-1.5 rounded-none transition-all cursor-pointer font-mono"
+                      className="bg-primary hover:bg-primary-hover text-black text-[10px] font-bold px-3.5 py-1.5 rounded transition-all cursor-pointer font-mono"
                     >
                       Clear Audit Filter
                     </button>
                   </div>
                 )}
 
-                <div className="bg-white border border-zinc-200 p-4.5 rounded-none">
+                <div className="bg-card-bg border border-border-color p-5 rounded shadow-md">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-                    <h2 className="text-xs font-black uppercase tracking-wider">
+                    <h2 className="text-xs font-black uppercase tracking-wider text-white">
                       {selectedUserAudit ? `${selectedUserAudit}'s Transaction Audit` : 'Active Expense Ledger'}
                     </h2>
                     <div className="w-full sm:max-w-xs relative select-none">
@@ -938,12 +1124,12 @@ export default function DashboardPage() {
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
                         placeholder="Filter description, payer..."
-                        className="w-full bg-white border border-zinc-250 rounded-none px-3 py-1.5 text-xs text-black placeholder-zinc-400 focus:outline-none focus:border-black transition-all font-mono"
+                        className="w-full bg-background border border-border-color rounded px-3 py-1.5 text-xs text-white placeholder-zinc-550 focus:outline-none focus:border-primary transition-all font-mono"
                       />
                       {searchQuery && (
                         <button
                           onClick={() => setSearchQuery('')}
-                          className="absolute right-2.5 top-1.5 text-zinc-405 hover:text-black focus:outline-none text-xs cursor-pointer"
+                          className="absolute right-2.5 top-1.5 text-zinc-500 hover:text-white focus:outline-none text-xs cursor-pointer"
                         >
                           ×
                         </button>
@@ -952,25 +1138,25 @@ export default function DashboardPage() {
                   </div>
 
                   {filteredLedger.length === 0 ? (
-                    <div className="text-center py-12 border border-dashed border-zinc-200 rounded-none">
-                      <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-wider">No ledger entries matching query.</p>
+                    <div className="text-center py-12 border border-dashed border-border-color rounded">
+                      <p className="text-zinc-550 text-[10px] font-bold uppercase tracking-wider font-mono">No ledger entries matching query.</p>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-[11px] border-collapse">
                         <thead>
-                          <tr className="border-b border-zinc-200 text-zinc-500 font-bold uppercase tracking-wider">
-                            <th className="pb-2 pr-2 font-mono">Date</th>
-                            <th className="pb-2 px-3">Description</th>
-                            <th className="pb-2 px-3">Paid By</th>
-                            <th className="pb-2 px-3">Total Amount</th>
-                            <th className="pb-2 px-3 font-mono">Type</th>
-                            <th className="pb-2 px-3">Splits Breakdown</th>
-                            {selectedUserAudit && <th className="pb-2 px-3">User Share</th>}
-                            <th className="pb-2 pl-3 text-right">Delete</th>
+                          <tr className="border-b border-border-color text-zinc-450 font-bold uppercase tracking-wider">
+                            <th className="pb-2.5 pr-2 font-mono">Date</th>
+                            <th className="pb-2.5 px-3">Description</th>
+                            <th className="pb-2.5 px-3">Paid By</th>
+                            <th className="pb-2.5 px-3">Total Amount</th>
+                            <th className="pb-2.5 px-3 font-mono">Type</th>
+                            <th className="pb-2.5 px-3">Splits Breakdown</th>
+                            {selectedUserAudit && <th className="pb-2.5 px-3">User Share</th>}
+                            <th className="pb-2.5 pl-3 text-right">Delete</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-zinc-100">
+                        <tbody className="divide-y divide-border-color/10">
                           {filteredLedger.map(exp => {
                             const paidInBase = Number(exp.amount) * Number(exp.exchangeRate);
                             const isSettlement = exp.isSettlement;
@@ -979,36 +1165,36 @@ export default function DashboardPage() {
                             const wasAuditUserPayer = exp.paidBy.name === selectedUserAudit;
 
                             return (
-                              <tr key={exp.id} className="hover:bg-zinc-50 transition-colors">
-                                <td className="py-3 pr-2 font-mono text-zinc-400">
+                              <tr key={exp.id} className="hover:bg-white/2 transition-colors border-b border-border-color/5">
+                                <td className="py-3 pr-2 font-mono text-zinc-500">
                                   {new Date(exp.dateIncurred).toISOString().slice(0, 10)}
                                 </td>
                                 <td className="py-3 px-3">
                                   <div className="flex items-center gap-1.5">
-                                    <span className="font-bold text-black text-xs">{exp.description}</span>
+                                    <span className="font-bold text-white text-xs uppercase">{exp.description}</span>
                                     {isSettlement && (
-                                      <span className="border border-black text-black text-[8px] px-1 py-0.25 rounded-none font-bold uppercase font-mono bg-white">
+                                      <span className="bg-primary/10 text-primary border border-primary/25 text-[8.5px] px-2 py-0.5 rounded font-bold uppercase font-mono">
                                         SETTLEMENT
                                       </span>
                                     )}
                                     {exp.amount < 0 && (
-                                      <span className="border border-black text-black text-[8px] px-1 py-0.25 rounded-none font-bold uppercase font-mono bg-white">
+                                      <span className="bg-danger/10 text-danger border border-danger/25 text-[8.5px] px-2 py-0.5 rounded font-bold uppercase font-mono">
                                         REFUND
                                       </span>
                                     )}
                                   </div>
-                                  {exp.notes && <div className="text-[9px] text-zinc-400 italic mt-0.5">{exp.notes}</div>}
+                                  {exp.notes && <div className="text-[9.5px] text-zinc-500 italic mt-0.5">{exp.notes}</div>}
                                 </td>
-                                <td className="py-3 px-3 text-zinc-700 font-bold">{exp.paidBy.name}</td>
-                                <td className="py-3 px-3 font-bold font-mono text-black text-xs">
+                                <td className="py-3 px-3 text-zinc-300 font-bold uppercase">{exp.paidBy.name}</td>
+                                <td className="py-3 px-3 font-bold font-mono text-white text-xs">
                                   <div>{formatAmount(paidInBase)}</div>
                                   {exp.currency.toUpperCase() !== 'INR' && (
-                                    <div className="text-[9px] text-zinc-400 font-normal mt-0.5 font-mono">
+                                    <div className="text-[9px] text-zinc-500 font-normal mt-0.5 font-mono">
                                       {exp.amount} {exp.currency} @ {exp.exchangeRate}
                                     </div>
                                   )}
                                 </td>
-                                <td className="py-3 px-3 capitalize text-zinc-500 font-mono">{exp.splitType.toLowerCase()}</td>
+                                <td className="py-3 px-3 capitalize text-zinc-400 font-mono">{exp.splitType.toLowerCase()}</td>
                                 <td className="py-3 px-3">
                                   <div className="max-w-xs flex flex-wrap gap-1">
                                     {exp.splits.map((s: any) => {
@@ -1016,10 +1202,10 @@ export default function DashboardPage() {
                                       return (
                                         <span
                                           key={s.id}
-                                          className={`text-[9px] font-bold px-1.5 py-0.25 rounded-none border font-mono ${
+                                          className={`text-[9px] font-bold px-1.5 py-0.25 rounded border font-mono ${
                                             selectedUserAudit === s.user.name
-                                              ? 'border-black text-black bg-white border-2'
-                                              : 'border-zinc-200 text-zinc-400 bg-white'
+                                              ? 'bg-primary/15 text-primary border-primary/45 shadow-[0_0_8px_rgba(0,208,156,0.15)] font-black'
+                                              : 'bg-zinc-900 border-border-color text-zinc-400'
                                           }`}
                                         >
                                           {s.user.name}: {useUSD ? `$${(splitAmtInBase/EXCHANGE_RATE).toFixed(1)}` : `₹${splitAmtInBase.toFixed(0)}`}
@@ -1032,12 +1218,12 @@ export default function DashboardPage() {
                                   <td className="py-3 px-3 font-mono">
                                     <div className="flex flex-col gap-0.5 text-[10px]">
                                       {wasAuditUserPayer && (
-                                        <span className="text-black font-black">
+                                        <span className="text-primary font-bold">
                                           PAID: +{formatAmount(paidInBase)}
                                         </span>
                                       )}
                                       {auditUserSplit && (
-                                        <span className="text-zinc-500 font-bold">
+                                        <span className="text-danger font-bold">
                                           OWED: -{formatAmount(auditUserShareInBase)}
                                         </span>
                                       )}
@@ -1047,7 +1233,7 @@ export default function DashboardPage() {
                                 <td className="py-3 pl-3 text-right">
                                   <button
                                     onClick={() => handleDeleteExpense(exp.id)}
-                                    className="text-zinc-400 hover:text-black transition-colors focus:outline-none p-1 cursor-pointer"
+                                    className="text-zinc-500 hover:text-danger transition-colors focus:outline-none p-1 cursor-pointer"
                                     title="Delete and restore to staged buffer"
                                   >
                                     <svg
@@ -1078,40 +1264,40 @@ export default function DashboardPage() {
             {/* Tab 3: Settlements list */}
             {activeTab === 'settlements' && (
               <div className="space-y-4">
-                <div className="bg-white border border-zinc-200 p-4.5 rounded-none">
-                  <h2 className="text-xs font-black uppercase tracking-wider mb-1">Debt settlements minimization</h2>
-                  <p className="text-zinc-500 text-[10px] mb-4">
+                <div className="bg-card-bg border border-border-color p-5 rounded shadow-md">
+                  <h2 className="text-xs font-black uppercase tracking-wider mb-1 text-white">Debt settlements minimization</h2>
+                  <p className="text-zinc-400 text-[10px] mb-4 font-mono">
                     Optimized cash flow instructions calculated to balance roommates net credit using the fewest transactions.
                   </p>
 
                   {settlements.length === 0 ? (
-                    <div className="text-center py-12 border border-dashed border-zinc-200 rounded-none">
-                      <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-wider font-mono">ledger is fully balanced. no payments required.</p>
+                    <div className="text-center py-12 border border-dashed border-border-color rounded">
+                      <p className="text-zinc-550 text-[10px] font-bold uppercase tracking-wider font-mono">ledger is fully balanced. no payments required.</p>
                     </div>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-2.5">
                       {settlements.map((tx, idx) => (
                         <div
                           key={idx}
-                          className="border border-zinc-200 p-3 rounded-none flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white"
+                          className="border border-border-color p-4 rounded flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-background hover:border-zinc-700 transition-colors shadow-sm"
                         >
                           <div className="flex items-center gap-2.5">
-                            <span className="font-extrabold text-black bg-white border border-black px-2 py-1 text-xs">
+                            <span className="font-extrabold text-white bg-zinc-900 border border-border-color px-2.5 py-1 text-xs rounded uppercase">
                               {tx.from}
                             </span>
-                            <span className="text-zinc-500 font-extrabold text-[9px] uppercase tracking-wider font-mono">pays</span>
-                            <span className="font-extrabold text-black bg-white border border-black px-2 py-1 text-xs">
+                            <span className="text-primary font-black text-[9px] uppercase tracking-wider font-mono">pays</span>
+                            <span className="font-extrabold text-white bg-zinc-900 border border-border-color px-2.5 py-1 text-xs rounded uppercase">
                               {tx.to}
                             </span>
                           </div>
                           
                           <div className="flex items-center justify-between sm:justify-end gap-3.5 font-mono">
-                            <div className="text-sm font-black text-black">
+                            <div className="text-sm font-black text-white">
                               {formatAmount(tx.amount)}
                             </div>
                             <button
                               onClick={() => handleExecuteSettlement(tx.from, tx.to, tx.amount, tx.currency)}
-                              className="bg-white hover:bg-zinc-100 border border-black text-black font-black text-[9px] px-2.5 py-1.5 rounded-none transition-all focus:outline-none cursor-pointer"
+                              className="bg-primary hover:bg-primary-hover text-black font-black text-[9.5px] px-3.5 py-2 rounded transition-all focus:outline-none cursor-pointer shadow-[0_0_10px_rgba(0,208,156,0.15)]"
                               title="Commit this payment to the database ledger"
                             >
                               MARK PAID
@@ -1127,9 +1313,9 @@ export default function DashboardPage() {
 
             {/* Tab 4: Timelines */}
             {activeTab === 'memberships' && (
-              <div className="bg-white border border-zinc-200 p-4.5 rounded-none font-mono">
-                <h2 className="text-xs font-black uppercase tracking-wider mb-1">Group timeline occupancy</h2>
-                <p className="text-zinc-500 text-[10px] mb-5">
+              <div className="bg-card-bg border border-border-color p-5 rounded font-mono shadow-md">
+                <h2 className="text-xs font-black uppercase tracking-wider mb-1 text-white">Group timeline occupancy</h2>
+                <p className="text-zinc-400 text-[10px] mb-5">
                   Visual calendar tracking each flatmate membership window. Expenses splits are constrained to active dates.
                 </p>
 
@@ -1152,30 +1338,30 @@ export default function DashboardPage() {
                     const isActiveNow = !left;
                     
                     return (
-                      <div key={m.id} className="grid grid-cols-12 items-center gap-3 border-b border-zinc-100 pb-4 last:border-0 last:pb-0">
-                        <div className="col-span-3 flex items-center gap-2">
-                          <div className={`w-7 h-7 bg-gradient-to-br ${bgGradient} border ${borderGlow} flex items-center justify-center text-[9px] font-bold text-black uppercase rounded-none shrink-0`}>
+                      <div key={m.id} className="grid grid-cols-12 items-center gap-3 border-b border-border-color/20 pb-4 last:border-0 last:pb-0">
+                        <div className="col-span-3 flex items-center gap-2.5">
+                          <div className={`w-7 h-7 bg-gradient-to-br ${bgGradient} border ${borderGlow} flex items-center justify-center text-[9px] font-bold text-white uppercase rounded shrink-0`}>
                             {initials}
                           </div>
                           <div className="min-w-0">
-                            <span className="font-bold text-zinc-800 text-xs truncate block">{m.user.name}</span>
-                            <span className={`inline-block text-[7px] font-black uppercase tracking-wider mt-0.5 px-1.5 py-0.25 border ${
+                            <span className="font-bold text-white text-xs truncate block uppercase">{m.user.name}</span>
+                            <span className={`inline-block text-[7px] font-black uppercase tracking-wider mt-0.5 px-1.5 py-0.25 border rounded ${
                               isActiveNow
-                                ? 'bg-white text-black border-black border-2'
-                                : 'bg-white text-zinc-500 border-zinc-200'
+                                ? 'bg-primary/15 text-primary border-primary/20 shadow-[0_0_8px_rgba(0,208,156,0.1)]'
+                                : 'bg-zinc-900 text-zinc-550 border-border-color'
                             }`}>
                               {isActiveNow ? 'Active' : m.user.name === 'Dev' || m.user.name === 'Kabir' ? 'Visitor' : 'Former'}
                             </span>
                           </div>
                         </div>
                         
-                        <div className="col-span-7 bg-white h-4 rounded-none relative overflow-hidden border border-black">
+                        <div className="col-span-7 bg-background h-3 rounded relative overflow-hidden border border-border-color">
                           <div
                             style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
-                            className={`absolute top-0 bottom-0 transition-all duration-350 ${
+                            className={`absolute top-0 bottom-0 transition-all duration-350 rounded-sm ${
                               isActiveNow
-                                ? 'bg-zinc-300 border-l border-r border-black'
-                                : 'bg-zinc-100 border-l border-r border-zinc-300'
+                                ? 'bg-primary/25 border-l border-r border-primary/50 shadow-[0_0_8px_rgba(0,208,156,0.15)]'
+                                : 'bg-zinc-800 border-l border-r border-border-color'
                             }`}
                           ></div>
                         </div>
@@ -1183,7 +1369,7 @@ export default function DashboardPage() {
                         <div className="col-span-2 text-right">
                           <button
                             onClick={() => startEditMembership(m)}
-                            className="bg-white hover:bg-zinc-100 border border-black text-black text-[9px] font-bold px-2 py-1 rounded-none transition-all cursor-pointer font-mono"
+                            className="bg-transparent hover:bg-primary/10 border border-primary/20 hover:border-primary text-primary text-[9px] font-bold px-2.5 py-1.5 rounded transition-all cursor-pointer font-mono"
                           >
                             EDIT DATES
                           </button>
@@ -1193,7 +1379,7 @@ export default function DashboardPage() {
                   })}
                 </div>
 
-                <div className="mt-4 pt-2 border-t border-zinc-100 grid grid-cols-12 text-[8px] text-zinc-450 font-bold font-mono uppercase pl-[25%] pr-[16.6%] select-none">
+                <div className="mt-4 pt-3 border-t border-border-color/30 grid grid-cols-12 text-[8px] text-zinc-550 font-bold font-mono uppercase pl-[25%] pr-[16.6%] select-none">
                   <div className="text-left col-span-3">FEB 2026</div>
                   <div className="text-center col-span-3">MAR 2026</div>
                   <div className="text-center col-span-3">APR 2026</div>
@@ -1205,28 +1391,28 @@ export default function DashboardPage() {
         </main>
 
         {/* Right Sidebar */}
-        <aside className="w-80 border-l border-zinc-200 bg-white flex flex-col overflow-y-auto px-5 py-5 shrink-0 select-none">
-          <div className="flex items-center justify-between pb-3.5 border-b border-zinc-200 mb-4">
-            <span className="text-xs font-black uppercase tracking-widest text-black font-mono">
+        <aside className="w-80 border-l border-border-color bg-card-bg flex flex-col overflow-y-auto px-5 py-5 shrink-0 select-none shadow-lg">
+          <div className="flex items-center justify-between pb-3.5 border-b border-border-color mb-4">
+            <span className="text-xs font-black uppercase tracking-widest text-white font-mono">
               Roommate Registry
             </span>
-            <span className="text-[9px] text-black font-mono uppercase font-bold">
+            <span className="text-[9px] text-zinc-550 font-mono uppercase font-bold">
               {balances.length} Flatmates
             </span>
           </div>
 
           {selectedUserAudit && (
-            <div className="mb-4 bg-white border border-black p-3 font-mono">
+            <div className="mb-4 bg-background border border-primary/20 p-3 rounded font-mono shadow-[0_0_12px_rgba(0,208,156,0.05)]">
               <div className="flex justify-between items-start">
-                <span className="text-[9px] font-bold uppercase text-black">LEDGER FILTER RUNNING</span>
+                <span className="text-[9px] font-bold uppercase text-primary">LEDGER FILTER RUNNING</span>
                 <button
                   onClick={() => setSelectedUserAudit(null)}
-                  className="text-black hover:text-zinc-650 text-[9px] font-bold focus:outline-none cursor-pointer"
+                  className="text-primary hover:text-white text-[9px] font-bold focus:outline-none cursor-pointer transition-colors"
                 >
                   CLEAR
                 </button>
               </div>
-              <div className="text-xs font-black text-black mt-1 uppercase tracking-wider">
+              <div className="text-xs font-black text-white mt-1 uppercase tracking-wider">
                 {selectedUserAudit}'s AUDIT TRAIL
               </div>
             </div>
@@ -1246,23 +1432,23 @@ export default function DashboardPage() {
                     setSelectedUserAudit(b.name);
                     setActiveTab('ledger');
                   }}
-                  className={`p-3 border transition-all duration-150 cursor-pointer flex flex-col gap-2 ${
+                  className={`p-3 border rounded transition-all duration-150 cursor-pointer flex flex-col gap-2 ${
                     isFiltered
-                      ? 'bg-white border-black border-2'
-                      : 'bg-white border-zinc-200 hover:border-zinc-400'
+                      ? 'bg-background border-primary shadow-[0_0_12px_rgba(0,208,156,0.1)]'
+                      : 'bg-background border-border-color hover:border-zinc-700'
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className={`w-6 h-6 bg-gradient-to-br ${bgGradient} border ${borderGlow} flex items-center justify-center text-[9px] font-bold text-black uppercase rounded-none shrink-0`}>
+                      <div className={`w-6 h-6 bg-gradient-to-br ${bgGradient} border ${borderGlow} flex items-center justify-center text-[9px] font-bold text-white uppercase rounded shrink-0`}>
                         {initials}
                       </div>
-                      <span className="text-xs font-black text-black uppercase tracking-wider">{b.name}</span>
+                      <span className="text-xs font-black text-white uppercase tracking-wider">{b.name}</span>
                     </div>
 
                     <div className="text-right">
                       <div className={`text-xs font-mono font-black ${
-                        isPositive ? 'text-black font-bold' : isNegative ? 'text-zinc-500' : 'text-zinc-300'
+                        isPositive ? 'text-primary' : isNegative ? 'text-danger' : 'text-zinc-500'
                       }`}>
                         {isPositive ? '↑ ' : isNegative ? '↓ ' : ''}
                         {formatAmount(Math.abs(b.netBalance))}
@@ -1270,7 +1456,7 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 text-[9px] text-zinc-400 border-t border-zinc-100 pt-2 font-mono">
+                  <div className="grid grid-cols-2 text-[9px] text-zinc-500 border-t border-border-color pt-2 font-mono">
                     <div>PAID: {useUSD ? `$${(b.totalPaid/EXCHANGE_RATE).toFixed(0)}` : `₹${b.totalPaid.toFixed(0)}`}</div>
                     <div className="text-right">OWED: {useUSD ? `$${(b.totalOwed/EXCHANGE_RATE).toFixed(0)}` : `₹${b.totalOwed.toFixed(0)}`}</div>
                   </div>
@@ -1280,26 +1466,26 @@ export default function DashboardPage() {
           </div>
 
           {/* Quick diagnostics statistics */}
-          <div className="mt-auto pt-6 border-t border-zinc-200">
-            <h4 className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-3 font-mono">
+          <div className="mt-auto pt-6 border-t border-border-color">
+            <h4 className="text-[9px] font-black uppercase tracking-widest text-primary mb-3 font-mono">
               SYSTEM STATISTICS
             </h4>
-            <div className="space-y-2 text-[9px] font-mono text-zinc-400">
+            <div className="space-y-2 text-[9px] font-mono text-zinc-500">
               <div className="flex justify-between">
                 <span>TOTAL EXPORTED:</span>
-                <span className="text-black font-bold">{expenses.length + stagedExpenses.length} ROWS</span>
+                <span className="text-white font-bold">{expenses.length + stagedExpenses.length} ROWS</span>
               </div>
               <div className="flex justify-between">
                 <span>ACTIVE LEDGER:</span>
-                <span className="text-black font-bold">{expenses.length} ROWS</span>
+                <span className="text-white font-bold">{expenses.length} ROWS</span>
               </div>
               <div className="flex justify-between">
                 <span>STAGED AUDITS:</span>
-                <span className="text-black font-bold">{stagedExpenses.filter(s => s.status === 'PENDING').length} ROWS</span>
+                <span className="text-white font-bold">{stagedExpenses.filter(s => s.status === 'PENDING').length} ROWS</span>
               </div>
               <div className="flex justify-between">
                 <span>SETTLEMENTS DUE:</span>
-                <span className="text-black font-bold">{settlements.length} CHECKS</span>
+                <span className="text-white font-bold">{settlements.length} CHECKS</span>
               </div>
             </div>
           </div>
@@ -1308,24 +1494,24 @@ export default function DashboardPage() {
 
       {/* MODAL 1: Resolve staged expense */}
       {editingStaged && editForm && (
-        <div className="fixed inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto font-mono">
-          <div className="bg-white border border-black rounded-none w-full max-w-lg p-6 shadow-2xl relative my-8 text-black">
-            <h3 className="text-xs font-black uppercase tracking-widest text-black mb-2">RECONCILE & COMMIT STAGED TRANSACTION</h3>
-            <p className="text-zinc-500 text-[10px] mb-4">
+        <div className="fixed inset-0 bg-[#0b0e14]/80 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto font-mono">
+          <div className="bg-card-bg border border-border-color rounded w-full max-w-lg p-6 shadow-2xl relative my-8 text-foreground">
+            <h3 className="text-xs font-black uppercase tracking-widest text-white mb-2">RECONCILE & COMMIT STAGED TRANSACTION</h3>
+            <p className="text-zinc-400 text-[10px] mb-4">
               Correct data anomalies and memberships mismatch before saving into ledger.
             </p>
 
             {/* List of anomalies in modal */}
-            <div className="mb-5 bg-white border border-black p-3.5 rounded-none">
-              <div className="text-[8px] font-black uppercase text-zinc-400 tracking-widest">ANOMALIES DIAGNOSED:</div>
+            <div className="mb-5 bg-background border border-border-color p-3.5 rounded">
+              <div className="text-[8.5px] font-black uppercase text-zinc-500 tracking-widest">ANOMALIES DIAGNOSED:</div>
               <div className="flex flex-wrap gap-1 mt-2">
                 {editingStaged.anomalies.map((a: string, idx: number) => (
-                  <span key={`${a}-${idx}`} className="border border-black text-black text-[8px] font-black px-1.5 py-0.25 rounded-none uppercase font-mono bg-white">
+                  <span key={`${a}-${idx}`} className="bg-danger/10 text-danger border border-danger/30 text-[8.5px] font-bold px-2 py-0.5 rounded uppercase font-mono">
                     {a.replace(/_/g, ' ')}
                   </span>
                 ))}
               </div>
-              <div className="text-[10px] text-zinc-500 mt-2.5 leading-relaxed">
+              <div className="text-[10px] text-zinc-400 mt-2.5 leading-relaxed">
                 {Object.keys(editingStaged.anomalyDetails).map(k => (
                   <div key={k}>• {editingStaged.anomalyDetails[k]}</div>
                 ))}
@@ -1333,35 +1519,35 @@ export default function DashboardPage() {
             </div>
 
             {/* Edit Fields Form */}
-            <div className="space-y-4 text-black">
+            <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[9px] uppercase font-black text-zinc-400 mb-1.5">Date</label>
+                  <label className="block text-[9.5px] uppercase font-black text-zinc-500 mb-1.5">Date</label>
                   <input
                     type="date"
                     value={editForm.date}
                     onChange={e => setEditForm({ ...editForm, date: e.target.value })}
-                    className="w-full bg-white border border-zinc-200 rounded-none px-3 py-2 text-xs text-black focus:outline-none focus:border-black font-mono"
+                    className="w-full bg-background border border-border-color rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-[9px] uppercase font-black text-zinc-400 mb-1.5">Description</label>
+                  <label className="block text-[9.5px] uppercase font-black text-zinc-500 mb-1.5">Description</label>
                   <input
                     type="text"
                     value={editForm.description}
                     onChange={e => setEditForm({ ...editForm, description: e.target.value })}
-                    className="w-full bg-white border border-zinc-205 rounded-none px-3 py-2 text-xs text-black focus:outline-none focus:border-black"
+                    className="w-full bg-background border border-border-color rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-[9px] uppercase font-black text-zinc-400 mb-1.5">Payer</label>
+                  <label className="block text-[9.5px] uppercase font-black text-zinc-500 mb-1.5">Payer</label>
                   <select
                     value={editForm.paid_by}
                     onChange={e => setEditForm({ ...editForm, paid_by: e.target.value })}
-                    className="w-full bg-white border border-zinc-200 rounded-none px-2 py-2 text-xs text-black focus:outline-none focus:border-black"
+                    className="w-full bg-background border border-border-color rounded px-2 py-2 text-xs text-white focus:outline-none focus:border-primary"
                   >
                     <option value="">Select Payer</option>
                     {memberships.map(m => (
@@ -1370,20 +1556,20 @@ export default function DashboardPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[9px] uppercase font-black text-zinc-400 mb-1.5">Amount</label>
+                  <label className="block text-[9.5px] uppercase font-black text-zinc-500 mb-1.5">Amount</label>
                   <input
                     type="number"
                     value={editForm.amount}
                     onChange={e => setEditForm({ ...editForm, amount: parseFloat(e.target.value) || 0 })}
-                    className="w-full bg-white border border-zinc-205 rounded-none px-3 py-2 text-xs text-black focus:outline-none focus:border-black"
+                    className="w-full bg-background border border-border-color rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
                   />
                 </div>
                 <div>
-                  <label className="block text-[9px] uppercase font-black text-zinc-400 mb-1.5">Currency</label>
+                  <label className="block text-[9.5px] uppercase font-black text-zinc-500 mb-1.5">Currency</label>
                   <select
                     value={editForm.currency}
                     onChange={e => setEditForm({ ...editForm, currency: e.target.value })}
-                    className="w-full bg-white border border-zinc-200 rounded-none px-2 py-2 text-xs text-black focus:outline-none focus:border-black"
+                    className="w-full bg-background border border-border-color rounded px-2 py-2 text-xs text-white focus:outline-none focus:border-primary"
                   >
                     <option value="INR">INR (₹)</option>
                     <option value="USD">USD ($)</option>
@@ -1392,11 +1578,11 @@ export default function DashboardPage() {
               </div>
 
               <div>
-                <label className="block text-[9px] uppercase font-black text-zinc-400 mb-1.5">Split Type</label>
+                <label className="block text-[9.5px] uppercase font-black text-zinc-500 mb-1.5">Split Type</label>
                 <select
                   value={editForm.split_type}
                   onChange={e => setEditForm({ ...editForm, split_type: e.target.value })}
-                  className="w-full bg-white border border-zinc-200 rounded-none px-2 py-2 text-xs text-black focus:outline-none focus:border-black"
+                  className="w-full bg-background border border-border-color rounded px-2 py-2 text-xs text-white focus:outline-none focus:border-primary"
                 >
                   <option value="equal">Equal</option>
                   <option value="percentage">Percentage</option>
@@ -1406,12 +1592,12 @@ export default function DashboardPage() {
               </div>
 
               <div>
-                <label className="block text-[9px] uppercase font-black text-zinc-400 mb-1.5">Split With Members</label>
+                <label className="block text-[9.5px] uppercase font-black text-zinc-500 mb-1.5">Split With Members</label>
                 <div className="grid grid-cols-3 gap-2 mt-2">
                   {memberships.map(m => {
                     const isChecked = editForm.split_with.includes(m.user.name);
                     return (
-                      <label key={m.user.id} className="flex items-center gap-2 bg-white border border-black p-2 rounded-none cursor-pointer hover:bg-zinc-50 transition-colors">
+                      <label key={m.user.id} className="flex items-center gap-2 bg-background border border-border-color p-2 rounded cursor-pointer hover:bg-white/2 transition-colors">
                         <input
                           type="checkbox"
                           checked={isChecked}
@@ -1421,9 +1607,9 @@ export default function DashboardPage() {
                               : [...editForm.split_with, m.user.name];
                             setEditForm({ ...editForm, split_with: updated });
                           }}
-                          className="rounded-none text-black focus:ring-black bg-white border-zinc-300"
+                          className="rounded text-primary focus:ring-primary bg-background border-border-color"
                         />
-                        <span className="text-[10px] font-semibold text-black">{m.user.name}</span>
+                        <span className="text-[10px] font-semibold text-white uppercase">{m.user.name}</span>
                       </label>
                     );
                   })}
@@ -1432,15 +1618,15 @@ export default function DashboardPage() {
 
               {editForm.split_type !== 'equal' && (
                 <div>
-                  <label className="block text-[9px] uppercase font-black text-zinc-400 mb-1.5">Split Details / Shares / Percentages</label>
+                  <label className="block text-[9.5px] uppercase font-black text-zinc-500 mb-1.5">Split Details / Shares / Percentages</label>
                   <input
                     type="text"
                     value={editForm.split_details}
                     onChange={e => setEditForm({ ...editForm, split_details: e.target.value })}
                     placeholder="e.g. Aisha 30%; Rohan 30%; Priya 40%"
-                    className="w-full bg-white border border-zinc-205 rounded-none px-3 py-2 text-xs text-black focus:outline-none focus:border-black font-mono"
+                    className="w-full bg-background border border-border-color rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary font-mono"
                   />
-                  <span className="text-[9px] text-zinc-405 mt-1 block font-mono">
+                  <span className="text-[9px] text-zinc-500 mt-1 block font-mono">
                     Format: Name 30%; Name 40% (sums to 100%) or Name 1; Name 2 (shares).
                   </span>
                 </div>
@@ -1454,13 +1640,13 @@ export default function DashboardPage() {
                   setEditingStaged(null);
                   setEditForm(null);
                 }}
-                className="bg-white hover:bg-zinc-100 border border-black text-black font-bold text-xs px-4 py-2 rounded-none transition-all focus:outline-none cursor-pointer"
+                className="bg-transparent hover:bg-white/5 border border-border-color text-zinc-450 hover:text-white font-bold text-xs px-4.5 py-2.5 rounded transition-all focus:outline-none cursor-pointer"
               >
                 CANCEL
               </button>
               <button
                 onClick={handleApproveEdit}
-                className="bg-white hover:bg-zinc-100 border border-black text-black font-black text-xs px-4 py-2 rounded-none transition-all focus:outline-none cursor-pointer"
+                className="bg-primary hover:bg-primary-hover border border-transparent text-black font-black text-xs px-4.5 py-2.5 rounded transition-all focus:outline-none cursor-pointer shadow-[0_0_12px_rgba(0,208,156,0.15)]"
               >
                 APPROVE & COMMIT
               </button>
@@ -1471,30 +1657,30 @@ export default function DashboardPage() {
 
       {/* MODAL 2: Modify Membership dates */}
       {editingMembership && (
-        <div className="fixed inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 font-mono">
-          <div className="bg-white border border-black rounded-none w-full max-w-md p-6 shadow-2xl text-black">
-            <h3 className="text-xs font-black uppercase tracking-widest text-black mb-1">ADJUST MEMB TIMELINE</h3>
-            <p className="text-black text-[10px] mb-4">
-              Modify occupancy duration for roommate <strong className="text-black">{editingMembership.user.name}</strong>.
+        <div className="fixed inset-0 bg-[#0b0e14]/80 backdrop-blur-md flex items-center justify-center p-4 z-50 font-mono">
+          <div className="bg-card-bg border border-border-color rounded w-full max-w-md p-6 shadow-2xl text-foreground">
+            <h3 className="text-xs font-black uppercase tracking-widest text-white mb-1">ADJUST MEMB TIMELINE</h3>
+            <p className="text-zinc-400 text-[10px] mb-4">
+              Modify occupancy duration for roommate <strong className="text-primary uppercase">{editingMembership.user.name}</strong>.
             </p>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-[9px] uppercase font-black text-black mb-1.5">Joined Group At</label>
+                <label className="block text-[9.5px] uppercase font-black text-zinc-500 mb-1.5">Joined Group At</label>
                 <input
                   type="date"
                   value={membershipForm.joinedAt}
                   onChange={e => setMembershipForm({ ...membershipForm, joinedAt: e.target.value })}
-                  className="w-full bg-white border border-zinc-200 rounded-none px-3 py-2 text-xs text-black focus:outline-none focus:border-black font-mono"
+                  className="w-full bg-background border border-border-color rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary font-mono"
                 />
               </div>
               <div>
-                <label className="block text-[9px] uppercase font-black text-zinc-400 mb-1.5">Left Group At (Blank if active)</label>
+                <label className="block text-[9.5px] uppercase font-black text-zinc-500 mb-1.5">Left Group At (Blank if active)</label>
                 <input
                   type="date"
                   value={membershipForm.leftAt}
                   onChange={e => setMembershipForm({ ...membershipForm, leftAt: e.target.value })}
-                  className="w-full bg-white border border-zinc-200 rounded-none px-3 py-2 text-xs text-black focus:outline-none focus:border-black font-mono"
+                  className="w-full bg-background border border-border-color rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary font-mono"
                 />
               </div>
             </div>
@@ -1502,13 +1688,13 @@ export default function DashboardPage() {
             <div className="mt-6 flex justify-end gap-2.5">
               <button
                 onClick={() => setEditingMembership(null)}
-                className="bg-white hover:bg-zinc-100 border border-black text-black font-bold text-xs px-4 py-2.5 rounded-none transition-all focus:outline-none cursor-pointer"
+                className="bg-transparent hover:bg-white/5 border border-border-color text-zinc-450 hover:text-white font-bold text-xs px-4.5 py-2.5 rounded transition-all focus:outline-none cursor-pointer"
               >
                 CANCEL
               </button>
               <button
                 onClick={handleSaveMembership}
-                className="bg-white hover:bg-zinc-100 border border-black text-black font-black text-xs px-4 py-2.5 rounded-none transition-all focus:outline-none cursor-pointer"
+                className="bg-primary hover:bg-primary-hover border border-transparent text-black font-black text-xs px-4.5 py-2.5 rounded transition-all focus:outline-none cursor-pointer shadow-[0_0_12px_rgba(0,208,156,0.15)]"
               >
                 SAVE TIMELINE
               </button>
